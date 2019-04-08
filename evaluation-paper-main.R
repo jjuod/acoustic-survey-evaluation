@@ -173,6 +173,14 @@ table(annot4$species)
 table(annot4$dateAdj)
 qplot(annot4$calllength)
 
+annotdir = "~/Documents/kiwis/results/detect1008F/raw/"
+annot5 = readAnnots(annotdir, recorders)
+
+# sanity checks
+table(annot5$species)
+table(annot5$dateAdj)
+qplot(annot5$calllength)
+
 
 ## 3. GET TP/FP MEASURES
 ## (AFTER HUMAN REVIEW)
@@ -187,12 +195,12 @@ bind_rows(man=annot, auto_rev=annot2, auto_raw=annot4, .id="detection") %>%
   theme_bw() + theme(axis.title = element_blank(), legend.title=element_blank(), legend.position = "bottom")
 
 # marked fractions
-bind_rows(man=annot, auto_rev=annot2, auto_raw=annot4, .id="detection") %>%
+bind_rows(man=annot, auto_rev=annot2, auto_rev=annot3, auto_raw=annot4, auto_raw=annot5, .id="detection") %>%
   group_by(detection) %>%
   summarize(sum(calllength) / 60)
 
 # marked fractions by filter
-bind_rows(man=annot, auto_rev=annot2, auto_raw=annot4, .id="detection") %>%
+bind_rows(man=annot, auto_rev=annot2, auto_rev=annot3, auto_raw=annot4, auto_raw=annot5, .id="detection") %>%
   group_by(detection, species) %>%
   summarize(sum(calllength) / 60)
 
@@ -237,9 +245,36 @@ summarize(concordanceF, sens = mean(man&auto)/mean(man),
           spec = mean(!man & !auto)/mean(!man),
           acc = mean(man & auto) + mean(!man & !auto), ncall=mean(man))
 
+## side things: export concordance for 6 hr of recorders
+filter(concordanceF, secs/3600 >= 10, secs/3600 < 16) %>%
+  group_by(man, auto) %>%
+  summarize(duration=n(), rate=duration /7 /6/3600) # total time = 7 recs * 12 hr
+filter(concordanceF, secs/3600 >= 10, secs/3600 < 16) %>%
+  summarize(sens = mean(man&auto)/mean(man),
+          fpr = mean(auto& !man)/mean(!man),
+          prec = mean(man&auto)/mean(auto),
+          spec = mean(!man & !auto)/mean(!man),
+          acc = mean(man & auto) + mean(!man & !auto), ncall=mean(man))
+filter(annot4, startAdj >= ymd_hms("2018-10-06 10:00:00"),
+        startAdj < ymd_hms("2018-10-06 16:00:00")) %>% 
+  group_by(species) %>%
+  summarize(sum(calllength)/60)
+filter(annot, startAdj >= ymd_hms("2018-10-06 10:00:00"),
+       startAdj < ymd_hms("2018-10-06 16:00:00")) %>% 
+  summarize(n(), sum(calllength)/60)
+filter(annot, startAdj >= ymd_hms("2018-10-06 10:00:00"),
+       startAdj < ymd_hms("2018-10-06 16:00:00")) %>% 
+  filter(calllength >= 5) %>%
+  summarize(n(), sum(calllength)/60)
+filter(annot2, startAdj >= ymd_hms("2018-10-06 10:00:00"),
+       startAdj < ymd_hms("2018-10-06 16:00:00")) %>% 
+  group_by(species) %>%
+  summarize(sum(calllength)/60)
+
+
 # MEASURES BY RECORDER
 group_by(concordanceF, rec, man, auto) %>%
-  summarize(duration=n(), rate=duration /12/3600*100) %>%
+  summarize(duration=n(), rate=duration /12/3==600*100) %>%
   print.data.frame
 
 specbyrec = group_by(concordanceF, rec) %>%
@@ -383,6 +418,9 @@ for(i in c(1, 50, 100, 150, 200, 250)){
 }
 par(mfrow=c(1,1), mar=c(5,5,4,4))
 
+# Two nights, automatic data:
+cr = fit.ascr(calls67A, traps, mask)
+summary(cr)
 
 ## 6. DROP SOME RECORDERS
 
@@ -445,6 +483,19 @@ traps = as.matrix(trapgrid[,c("east", "north")])
 
 mask = create.mask(traps, buffer=700)
 
+capt6A = converttoCapt(presence6A)
+capt6A = inner_join(capt6A, trapgrid, by="rec")[,c("session", "start", "occ", "recid")]
+calls6A = create.capt(as.data.frame(capt6A), n.traps=7, n.sessions = NULL)
+
+capt7A = converttoCapt(presence7A)
+capt7A = inner_join(capt7A, trapgrid, by="rec")[,c("session", "start", "occ", "recid")]
+calls7A = create.capt(as.data.frame(capt7A), n.traps=7, n.sessions = NULL)
+
+calls67A = bind_rows(mutate(capt6A, start=paste0("6_", start)),
+                     mutate(capt7A, start=paste0("7_", start))) %>%
+  as.data.frame() %>%
+  create.capt(., n.traps = 7, n.sessions = NULL)
+
 speedplot = data.frame()
 
 ## FULL 2 NIGHTS
@@ -456,7 +507,7 @@ names(speedplot) = c("duration", "D", "g0", "sigma", "SE_D", "SE_g0", "SE_sigma"
 ## REALISTIC SUBSETS (night 1, night 2)
 cr = fit.ascr(calls6A, traps, mask)
 summary(cr)
-speedplot = rbind(speedplot, c(1, coef.ascr(cr), stdEr.ascr(cr)))
+#speedplot = rbind(speedplot, c(1, coef.ascr(cr), stdEr.ascr(cr)))
 
 # store these as reference
 bestD = coef.ascr(cr)[["D"]]
@@ -464,7 +515,7 @@ bestSE = stdEr.ascr(cr)[["D"]]
 
 cr = fit.ascr(calls7A, traps, mask)
 summary(cr)
-speedplot = rbind(speedplot, c(1, coef.ascr(cr), stdEr.ascr(cr)))
+#speedplot = rbind(speedplot, c(1, coef.ascr(cr), stdEr.ascr(cr)))
 
 # store these as reference
 bestD = (coef.ascr(cr)[["D"]] + bestD)/2
@@ -473,9 +524,9 @@ bestSE = (stdEr.ascr(cr)[["D"]] + bestSE)/2
 ## SUBSAMPLING
 for(fr in c(0.25, 0.5, 1, 1.5)){
   # take first 30 min of each hour:
-  capt6A = filter(presence6A, secs %% 3600 >= fr/2*60*60) %>%
+  capt6A = filter(presence6A, secs %% 3600 <= fr/2*60*60) %>%
     converttoCapt()
-  capt7A = filter(presence7A, secs %% 3600 >= fr/2*60*60) %>%
+  capt7A = filter(presence7A, secs %% 3600 <= fr/2*60*60) %>%
     converttoCapt()
   
   # bind, convert to capt:
@@ -493,17 +544,18 @@ for(fr in c(0.25, 0.5, 1, 1.5)){
 speedplot
 
 # Figure 3
+# single frame version
+mutate(speedplot, D=D/duration, SE_D=SE_D/duration) %>%
+  ggplot() + geom_point(aes(x=duration, y=SE_D)) +
+  geom_line(aes(x, y=bestSE/sqrt(x)), data=data.frame(x=seq(0.2, 2, 0.1)), col="grey50") +
+  theme_bw() + xlab("duration, nights") + ylab("SE_D, calls / ha / night")
+
+# A,B version
 p1 = mutate(speedplot, D=D/duration, SE_D=SE_D/duration) %>%
   mutate(theor=bestSE / sqrt(duration)) %>% 
   ggplot() + geom_point(aes(x=duration, y=SE_D)) +
   geom_line(aes(x, y=bestSE/sqrt(x)), data=data.frame(x=seq(0.2, 2, 0.1)), col="grey50") +
   theme_bw() + xlab("duration, nights")
-
-mutate(speedplot, D=D/duration) %>%
-  ggplot(aes(x=duration)) + geom_point(aes(y=D)) +
-  geom_ribbon(aes(ymin=D-1.96*SE_D/duration, ymax=D+1.96*SE_D/duration), alpha=0.2, fill="grey") +
-  theme_bw()
-
 
 # given effect size, what is the power as f(number of nights)?
 muDiff = 2.89*0.2
@@ -556,14 +608,18 @@ for(t in 1:nrow(timeplot)){
   timeplot[t,7:9] = stdEr.ascr(cr)
 }
 timeplot
+timeplot = timeplot[c(1:5, 7:nrow(timeplot)),]
 
 p1 = mutate(timeplot, D=D/(timemax-timemin)*12, SE_D=SE_D/(timemax-timemin)*12) %>%
   ggplot(aes(x=reorder(time, 1:nrow(timeplot)))) + geom_point(aes(y=D)) +
-  geom_errorbar(aes(ymin=D-1.96*SE_D, ymax=D+1.96*SE_D)) +
-  ylim(c(0, 12)) + theme_bw() + xlab("recording time")
-p2 = ggplot(timeplot, aes(x=reorder(time, 1:nrow(timeplot)))) +
+  geom_errorbar(aes(ymin=D-1.96*SE_D, ymax=D+1.96*SE_D), width=0.3) +
+  geom_vline(xintercept=c(1.5, 5.5), color="red") +
+  ylim(c(0, 12)) + theme_bw() + xlab(NULL) + ylab("D, calls / night / ha")
+p2 = timeplot %>%
+  ggplot(aes(x=reorder(time, 1:nrow(timeplot)))) +
   geom_point(aes(y=sigma)) +
-  geom_errorbar(aes(ymin=sigma-1.96*SE_sigma, ymax=sigma+1.96*SE_sigma)) +
+  geom_vline(xintercept=c(1.5, 5.5), color="red") +
+  geom_errorbar(aes(ymin=sigma-1.96*SE_sigma, ymax=sigma+1.96*SE_sigma), width=0.3) +
   ylim(c(120, 250)) + theme_bw() + xlab("recording time")
 
 plot_grid(p1, p2, nrow=2, labels="AUTO")
