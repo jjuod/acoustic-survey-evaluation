@@ -262,14 +262,14 @@ gpsmap = setValues(gpsmap, gpsmapcols$idx)
 colortable(gpsmap) = gpsmapcols$ct
 
 # save it - note the maxpixels arg!!
+gpsmap = crop(gpsmap, extent(1745150, 1746000, 5425150, 5426200))
 p = gplot(gpsmap, maxpixels=8e6) +
   geom_raster(aes(fill=value)) +
   geom_point(aes(x=east, y=north), color="white", pch=4, data=gpsposM) +
   geom_text(aes(x=east, y=north, label=rec), color="white", data=gpsposM, vjust=0, nudge_y=20) +
-  coord_cartesian(ylim=c(5425000, 5426300), xlim=c(1745150, 1746000)) +
   xlab("Easting, m") + ylab("Northing, m") + 
   scale_fill_gradientn(colours=colortable(gpsmap), guide="none") +
-  theme_bw() + theme(aspect.ratio = 1)
+  coord_fixed(xlim=c(1745150, 1746000), ylim=c(5425150, 5426200), expand=F) + theme_bw()
 
 ggsave(plot=p, filename=paste0(outdir, "recorder_map.tiff"), device = "tiff", dpi=300)
 

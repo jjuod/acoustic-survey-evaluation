@@ -386,7 +386,7 @@ calls6A = create.capt(as.data.frame(capt6A), n.traps = 7, n.sessions = NULL)
 calls7A = create.capt(as.data.frame(capt7A), n.traps = 7, n.sessions = NULL)
 
 calls67A = bind_rows(mutate(capt6A, start=paste0("6_", start)),
-          mutate(capt7A, start=paste0("7_", start))) %>%
+             mutate(capt7A, start=paste0("7_", start))) %>%
   as.data.frame() %>%
   create.capt(., n.traps = 7, n.sessions = NULL)
 
@@ -396,17 +396,22 @@ plot(mask)
 
 
 ## 5. FIT ASCR
-cr = fit.ascr(calls6, traps, mask)
-summary(cr)
 
-# BOOTSTRAP FOR COMPARISON
-#bb = boot.ascr(cr, 400, n.cores = 7)
-#summary(bb)
-# SE D 0.2073 (was 0.2153)
-# SE g0 0.0412 (was 1e-06)
-# SE sigma 7.7121 (was 7.1693)
-#get.mce(bb, "se")
-# g0 0.0019, sigma 0.281, D 0.00255
+# set this to TRUE for the first run (will take some hours)
+bootSEs = FALSE
+
+## full 2 nights, automatic annotations
+capt6A = converttoCapt(presence6A)
+capt7A = converttoCapt(presence7A)
+
+# bind, convert to capt:
+capt67A = bind_rows(mutate(capt6A, start=paste0("6_", start)),
+                    mutate(capt7A, start=paste0("7_", start)))
+capt67A = inner_join(capt67A, trapgrid, by="rec")[,c("session", "start", "occ", "recid")]
+calls67A = create.capt(as.data.frame(capt67A), n.traps=7, n.sessions = NULL)
+
+cr = fit.ascr(calls67A, traps, mask)
+summary(cr)
 
 show.detfn(cr, xlim=c(0, 700))
 show.detsurf(cr)
@@ -418,11 +423,100 @@ for(i in c(1, 50, 100, 150, 200, 250)){
 }
 par(mfrow=c(1,1), mar=c(5,5,4,4))
 
-# Two nights, automatic data:
-cr = fit.ascr(calls67A, traps, mask)
-summary(cr)
+# bootstrap SEs or read saved ones?
+if(bootSEs){
+  bb = boot.ascr(cr, 200, n.cores = 4)
+  summary(bb)
+  save(bb, file=paste0(outdir, "/data/boot-67a.RData"))
+} else {
+  load(paste0(outdir, "/data/boot-67a.RData"), verbose=T)
+  bb67A = bb
+}
 
-## 6. DROP SOME RECORDERS
+# we can confirm that the number of boot iterations is sufficient by
+# get.mce(bb, "se")
+
+speedplot = data.frame()
+speedplot = rbind(speedplot, c(2, coef.ascr(cr), stdEr(cr), stdEr(bb)))
+names(speedplot) = c("duration", "D", "g0", "sigma", "SE_D", "SE_g0", "SE_sigma", "SE_D_b", "SE_g0_b", "SE_sigma_b")
+
+
+## 6. SUBSAMPLE DATA (speed and power)
+
+for(fr in c(0.25, 0.5, 1, 1.5)){
+  # take first X min of each hour:
+  capt6A = filter(presence6A, secs %% 3600 <= fr/2*60*60) %>%
+    converttoCapt()
+  capt7A = filter(presence7A, secs %% 3600 <= fr/2*60*60) %>%
+    converttoCapt()
+  
+  # bind, convert to capt:
+  capt67A = bind_rows(mutate(capt6A, start=paste0("6_", start)),
+                      mutate(capt7A, start=paste0("7_", start)))
+  capt67A = inner_join(capt67A, trapgrid, by="rec")[,c("session", "start", "occ", "recid")]
+  calls67A = create.capt(as.data.frame(capt67A), n.traps=7, n.sessions = NULL)
+  
+  # fit ascr.
+  # Note: we're not using the survey.length parameter,
+  # because bootstrap generates surveys of length 1
+  # which gives bad SEs (i.e. corresponding to surveys of length 1, not 0.25 or whatever)
+  cr = fit.ascr(calls67A, traps, mask)
+  summary(cr)
+  if(bootSEs){
+    bb = boot.ascr(cr, 200, n.cores = 4)
+    summary(bb)
+    save(bb, file=paste0(outdir, "/data/boot-67a-", fr, ".RData"))
+  } else {
+    load(paste0(outdir, "/data/boot-67a-", fr, ".RData"), verbose=T)
+  }
+  
+  # save result:
+  speedplot = rbind(speedplot, c(fr, coef.ascr(cr), stdEr(cr), stdEr(bb)))
+}
+speedplot
+
+
+# Figure 3
+# single frame version
+# (note the division by survey length to account for the issue discussed above)
+gather(speedplot, key="method", value="SE", c(SE_D, SE_D_b)) %>%
+  ggplot(aes(x=duration, y=SE/duration, col=method, group=method)) + geom_point() +
+  scale_color_discrete(labels=c("asymptotic", "bootstrapped"), name=NULL) +
+  geom_smooth(method="nls", formula = y ~ a/sqrt(x), method.args=list(start=c(a=1)), se=F) +
+  theme_bw() + xlab("duration, nights") + ylab(expression(SE(hat(D)))) +
+  theme(legend.position = c(0.8,0.8))
+
+
+## 7. COMPARE WITH MANUAL ANNOTATIONS
+
+# manual:
+cr = fit.ascr(calls6, traps, mask)
+summary(cr)
+if(bootSEs){
+  bb = boot.ascr(cr, 200, n.cores = 6)
+  print(summary(bb))
+  save(bb, file=paste0(outdir, "/data/boot-6.RData"))
+} else {
+  load(paste0(outdir, "/data/boot-6.RData"), verbose=T)
+}
+
+# automatic, one night:
+cr = fit.ascr(calls6A, traps, mask)
+summary(cr)
+if(bootSEs){
+  bb = boot.ascr(cr, 200, n.cores = 6)
+  print(summary(bb))
+  save(bb, file=paste0(outdir, "/data/boot-6a.RData"))
+} else {
+  load(paste0(outdir, "/data/boot-6a.RData"), verbose=T)
+}
+
+# can check the other automatic night as well
+# cr = fit.ascr(calls7A, traps, mask)
+# summary(cr)
+
+
+## 8. DROP SOME RECORDERS
 
 # dropping recorders ZA, ZI
 trapgrid = filter(gpsposM, !rec %in% c("ZC", "ZF", "ZK", "ZA", "ZI")) %>%
@@ -443,11 +537,24 @@ calls6A = create.capt(as.data.frame(capt6A), n.traps=5, n.sessions = NULL)
 cr = fit.ascr(calls6, traps, mask)
 summary(cr)
 show.detfn(cr, xlim=c(0, 700))
+if(bootSEs){
+  bb = boot.ascr(cr, 200, n.cores = 6)
+  print(summary(bb))
+  save(bb, file=paste0(outdir, "/data/boot-6-zazi.RData"))
+} else {
+  load(paste0(outdir, "/data/boot-6-zazi.RData"), verbose=T)
+}
 
 cr = fit.ascr(calls6A, traps, mask)
 summary(cr)
 show.detfn(cr, xlim=c(0, 700))
-
+if(bootSEs){
+  bb = boot.ascr(cr, 200, n.cores = 6)
+  print(summary(bb))
+  save(bb, file=paste0(outdir, "/data/boot-6a-zazi.RData"))
+} else {
+  load(paste0(outdir, "/data/boot-6a-zazi.RData"), verbose=T)
+}
 
 # dropping recorders ZB, ZH
 trapgrid = filter(gpsposM, !rec %in% c("ZC", "ZF", "ZK", "ZH", "ZB")) %>%
@@ -467,159 +574,23 @@ calls6A = create.capt(as.data.frame(capt6A), n.traps=5, n.sessions = NULL)
 cr = fit.ascr(calls6, traps, mask)
 summary(cr)
 show.detfn(cr, xlim=c(0, 700))
+if(bootSEs){
+  bb = boot.ascr(cr, 200, n.cores = 6)
+  print(summary(bb))
+  save(bb, file=paste0(outdir, "/data/boot-6-zbzh.RData"))
+} else {
+  load(paste0(outdir, "/data/boot-6-zbzh.RData"), verbose=T)
+}
 
 cr = fit.ascr(calls6A, traps, mask)
 summary(cr)
 show.detfn(cr, xlim=c(0, 700))
-
-
-## 7. SPEED AND POWER
-# idea: more data should have smaller SEs, by 1/sqrt(n).
-# test: take various amounts of auto-processed data, fit ASCR, measure SE(density).
-
-trapgrid = filter(gpsposM, !rec %in% c("ZC", "ZF", "ZK")) %>%
-  mutate(recid=1:n())
-traps = as.matrix(trapgrid[,c("east", "north")])
-
-mask = create.mask(traps, buffer=700)
-
-capt6A = converttoCapt(presence6A)
-capt6A = inner_join(capt6A, trapgrid, by="rec")[,c("session", "start", "occ", "recid")]
-calls6A = create.capt(as.data.frame(capt6A), n.traps=7, n.sessions = NULL)
-
-capt7A = converttoCapt(presence7A)
-capt7A = inner_join(capt7A, trapgrid, by="rec")[,c("session", "start", "occ", "recid")]
-calls7A = create.capt(as.data.frame(capt7A), n.traps=7, n.sessions = NULL)
-
-calls67A = bind_rows(mutate(capt6A, start=paste0("6_", start)),
-                     mutate(capt7A, start=paste0("7_", start))) %>%
-  as.data.frame() %>%
-  create.capt(., n.traps = 7, n.sessions = NULL)
-
-speedplot = data.frame()
-
-## FULL 2 NIGHTS
-cr = fit.ascr(calls67A, traps, mask)
-summary(cr)
-speedplot = rbind(speedplot, c(2, coef.ascr(cr), stdEr.ascr(cr)))
-names(speedplot) = c("duration", "D", "g0", "sigma", "SE_D", "SE_g0", "SE_sigma")
-
-## REALISTIC SUBSETS (night 1, night 2)
-cr = fit.ascr(calls6A, traps, mask)
-summary(cr)
-#speedplot = rbind(speedplot, c(1, coef.ascr(cr), stdEr.ascr(cr)))
-
-# store these as reference
-bestD = coef.ascr(cr)[["D"]]
-bestSE = stdEr.ascr(cr)[["D"]]
-
-cr = fit.ascr(calls7A, traps, mask)
-summary(cr)
-#speedplot = rbind(speedplot, c(1, coef.ascr(cr), stdEr.ascr(cr)))
-
-# store these as reference
-bestD = (coef.ascr(cr)[["D"]] + bestD)/2
-bestSE = (stdEr.ascr(cr)[["D"]] + bestSE)/2
-
-## SUBSAMPLING
-for(fr in c(0.25, 0.5, 1, 1.5)){
-  # take first 30 min of each hour:
-  capt6A = filter(presence6A, secs %% 3600 <= fr/2*60*60) %>%
-    converttoCapt()
-  capt7A = filter(presence7A, secs %% 3600 <= fr/2*60*60) %>%
-    converttoCapt()
-  
-  # bind, convert to capt:
-  capt67A = bind_rows(mutate(capt6A, start=paste0("6_", start)),
-                      mutate(capt7A, start=paste0("7_", start)))
-  capt67A = inner_join(capt67A, trapgrid, by="rec")[,c("session", "start", "occ", "recid")]
-  calls67A = create.capt(as.data.frame(capt67A), n.traps=7, n.sessions = NULL)
-  
-  # fit ascr:
-  cr = fit.ascr(calls67A, traps, mask)
-  summary(cr)
-  # save result:
-  speedplot = rbind(speedplot, c(fr, coef.ascr(cr), stdEr.ascr(cr)))
+if(bootSEs){
+  bb = boot.ascr(cr, 200, n.cores = 6)
+  print(summary(bb))
+  save(bb, file=paste0(outdir, "/data/boot-6a-zbzh.RData"))
+} else {
+  load(paste0(outdir, "/data/boot-6a-zbzh.RData"), verbose=T)
 }
-speedplot
-
-# Figure 3
-# single frame version
-mutate(speedplot, D=D/duration, SE_D=SE_D/duration) %>%
-  ggplot() + geom_point(aes(x=duration, y=SE_D)) +
-  geom_line(aes(x, y=bestSE/sqrt(x)), data=data.frame(x=seq(0.2, 2, 0.1)), col="grey50") +
-  theme_bw() + xlab("duration, nights") + ylab("SE_D, calls / ha / night")
-
-# A,B version
-p1 = mutate(speedplot, D=D/duration, SE_D=SE_D/duration) %>%
-  mutate(theor=bestSE / sqrt(duration)) %>% 
-  ggplot() + geom_point(aes(x=duration, y=SE_D)) +
-  geom_line(aes(x, y=bestSE/sqrt(x)), data=data.frame(x=seq(0.2, 2, 0.1)), col="grey50") +
-  theme_bw() + xlab("duration, nights")
-
-# given effect size, what is the power as f(number of nights)?
-muDiff = 2.89*0.2
-mutate(speedplot, power = 1-pnorm(zCr, mean=muDiff/sqrt(2*(SE_D/duration)^2), sd=1))
-
-p2 = data.frame(x=seq(0.1, 5, 0.05)) %>%
-  mutate(power=1-pnorm(zCr, mean=muDiff/sqrt(2*bestSE^2/x))) %>%
-  ggplot() + geom_line(aes(x=x, y=power)) + 
-  ylim(c(0,1)) +
-  theme_bw() + xlab("duration, nights")
-
-plot_grid(p1, p2, nrow=2, labels="AUTO")
 
 
-## 8. CASE STUDY: TIME OF SAMPLING
-# as for speed, but instead of taking various size at fixed time (start of hour),
-# take various times of fixed time (3 hr?)
-
-trapgrid = filter(gpsposM, !rec %in% c("ZC", "ZF", "ZK")) %>%
-  mutate(recid=1:n())
-traps = as.matrix(trapgrid[,c("east", "north")])
-mask = create.mask(traps, buffer=700)
-
-timeplot = data.frame(time=c("full night", "18-21", "21-00", "00-03", "03-06",
-                             "18-20", "20-22", "22-00", "00-02", "02-04", "04-06"),
-                      timemin=c(6, 6, 9, 12, 15, 6, 8, 10, 12, 14, 16),
-                      timemax=c(18, 9, 12, 15, 18, 8, 10, 12, 14, 16, 18),
-                      D=0, g0=0, sigma=0, SE_D=0, SE_g0=0, SE_sigma=0)
-
-for(t in 1:nrow(timeplot)){
-  # take first 30 min of each hour:
-  capt6A = filter(presence6A, secs / 3600 >= timeplot$timemin[t],
-                  secs / 3600 < timeplot$timemax[t]) %>%
-    converttoCapt()
-  capt7A = filter(presence7A, secs / 3600 >= timeplot$timemin[t],
-                  secs / 3600 < timeplot$timemax[t]) %>%
-    converttoCapt()
-  
-  # bind, convert to capt:
-  capt67A = bind_rows(mutate(capt6A, start=paste0("6_", start)),
-                      mutate(capt7A, start=paste0("7_", start)))
-  capt67A = inner_join(capt67A, trapgrid, by="rec")[,c("session", "start", "occ", "recid")]
-  calls67A = create.capt(as.data.frame(capt67A), n.traps=7, n.sessions = NULL)
-  
-  # fit ascr:
-  cr = fit.ascr(calls67A, traps, mask)
-  summary(cr)
-  # save result:
-  timeplot[t,4:6] = coef.ascr(cr)
-  timeplot[t,7:9] = stdEr.ascr(cr)
-}
-timeplot
-timeplot = timeplot[c(1:5, 7:nrow(timeplot)),]
-
-p1 = mutate(timeplot, D=D/(timemax-timemin)*12, SE_D=SE_D/(timemax-timemin)*12) %>%
-  ggplot(aes(x=reorder(time, 1:nrow(timeplot)))) + geom_point(aes(y=D)) +
-  geom_errorbar(aes(ymin=D-1.96*SE_D, ymax=D+1.96*SE_D), width=0.3) +
-  geom_vline(xintercept=c(1.5, 5.5), color="red") +
-  ylim(c(0, 12)) + theme_bw() + xlab(NULL) + ylab("D, calls / night / ha")
-p2 = timeplot %>%
-  ggplot(aes(x=reorder(time, 1:nrow(timeplot)))) +
-  geom_point(aes(y=sigma)) +
-  geom_vline(xintercept=c(1.5, 5.5), color="red") +
-  geom_errorbar(aes(ymin=sigma-1.96*SE_sigma, ymax=sigma+1.96*SE_sigma), width=0.3) +
-  ylim(c(120, 250)) + theme_bw() + xlab("recording time")
-
-plot_grid(p1, p2, nrow=2, labels="AUTO")
