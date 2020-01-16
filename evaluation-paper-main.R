@@ -500,6 +500,12 @@ if(bootSEs){
   load(paste0(outdir, "/data/boot-6.RData"), verbose=T)
 }
 
+# inspect detection function g0*(exp(-1/2*d^2/s^2))
+show.detfn(cr, xlim=c(0, 700))
+1*exp(-1/2*200^2/200.46^2)
+abline(h=0.608, col="red")
+abline(v=200, col="red")
+
 # automatic, one night:
 cr = fit.ascr(calls6A, traps, mask)
 summary(cr)
@@ -515,6 +521,24 @@ if(bootSEs){
 # cr = fit.ascr(calls7A, traps, mask)
 # summary(cr)
 
+# inspect detection function
+show.detfn(cr, xlim=c(0, 700))
+abline(h=0.543, col="red")
+abline(v=200, col="red")
+
+# EDR
+detectionfn = function(x){
+  s = 180.934
+  1 * exp(-1/2 * x^2 / s^2)
+}
+# equiv area of certain detection
+eda = integrate(function(r) 2*pi*r*detectionfn(r), 0, Inf)$value
+edr = sqrt(eda/pi)
+detectionfn(edr)
+# example: missed counts within EDR
+pi*edr^2 - integrate(function(r) 2*pi*r*detectionfn(r), 0, edr)$value
+# detected outside EDR
+integrate(function(r) 2*pi*r*detectionfn(r), edr, Inf)
 
 ## 8. DROP SOME RECORDERS
 

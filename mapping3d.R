@@ -1,3 +1,4 @@
+library(rgdal)
 library(ggplot2)
 library(geoviz)
 library(rayshader)
@@ -62,8 +63,10 @@ get_slippy_map_15 <- function(bounding_box, image_source = "stamen", image_type 
   return(raster_out)
 }
 
-# with fixed CRS and raise_agl
-add_gps_to_rayshader <- function(raster_input, lat, long, alt, zscale, line_width = 1, colour = "red", alpha = 0.8, lightsaber = TRUE, clamp_to_ground = FALSE, raise_agl = 0, ground_shadow = FALSE, as_line = TRUE, point_size = 20){
+# with fixed CRS and raise_agl6
+add_gps_to_rayshader <- function(raster_input, lat, long, alt, zscale, line_width = 1, colour = "red", alpha = 0.8,
+                                 lightsaber = TRUE, clamp_to_ground = FALSE, raise_agl = 0, ground_shadow = FALSE,
+                                 as_line = TRUE, point_size = 20, pch=16){
   
   coords <- latlong_to_rayshader_coords(raster_input, lat, long)
   
@@ -153,21 +156,32 @@ add_gps_to_rayshader <- function(raster_input, lat, long, alt, zscale, line_widt
       )
     }
   } else {
-    
-    rgl::points3d(
-      distances_x,  #lat
-      track_altitude / zscale + raise_agl,  #alt
-      -distances_y,  #long
-      color = colour,
-      alpha = alpha,
-      size = point_size
-    )
+    # switch shape point vs pch
+    if(pch==16){
+      rgl::points3d(
+            distances_x,  #lat
+            track_altitude / zscale + raise_agl,  #alt
+            -distances_y,  #long
+            color = colour,
+            alpha = alpha,
+            size = point_size
+      )  
+    } else {
+      rgl::pch3d(pch=pch,
+            distances_x,  #lat
+            track_altitude / zscale + raise_agl,  #alt
+            -distances_y,  #long
+            color = colour,
+            alpha = alpha,
+            size = point_size
+      )  
+    }
   }
 }
 
 # based on add_gps_to_rayshader, but adds text
 add_text_to_rayshader <- function(raster_input, lat, long, alt, zscale, text, colour = "red", alpha = 0.8,
-                                  clamp_to_ground = FALSE, raise_agl = 0, ground_shadow = FALSE, char_size = 20){
+                                  clamp_to_ground = FALSE, raise_agl = 0, ground_shadow = FALSE, char_size = 20, cex = rgl::par3d("cex")){
   
   coords <- latlong_to_rayshader_coords(raster_input, lat, long)
   
@@ -200,6 +214,7 @@ add_text_to_rayshader <- function(raster_input, lat, long, alt, zscale, text, co
     track_altitude / zscale + raise_agl,  #alt
     -distances_y,  #long
     text,
+    cex = cex,
     color = colour,
     alpha = alpha,
     size = char_size
@@ -242,7 +257,7 @@ raster_elev <- raster::projectRaster(raster_elev, crs = CRS(proj4string(gpsmap))
 
 # crop to plotting size
 mapbbox = extent(c(1745150, 1746000, 5425000, 5426300))
-crs(mapbbox) = CRS(proj4string(gpsmap))
+#crs(mapbbox) = CRS(proj4string(gpsmap)) - doesn't work??
 raster_elev2 = crop(raster_elev, mapbbox)
 
 # template for crop/resample
@@ -295,7 +310,15 @@ scene <- elev_mat %>%
   sphere_shade(sunangle=270) %>% 
   add_overlay(DEMsh) %>%
   add_overlay(map_image)
+# remove ZC if using this for 2018 Zealandia data
+gpspos_notc = gpspos[gpspos$V1!="ZC",]
 plot_3d(scene, elev_mat, solidcolor="grey40", zoom=0.5)
-add_gps_to_rayshader(DEM, gpspos$V2, gpspos$V3, zscale=1, clamp_to_ground=T, raise_agl=2, point_size=10, as_line=F, colour="white")
-add_text_to_rayshader(DEM, gpspos$V2, gpspos$V3, text=gpspos$V1, zscale=1, clamp_to_ground=T, raise_agl=30, char_size=50, colour="white")
-
+add_gps_to_rayshader(DEM, gpspos_notc$V2, gpspos_notc$V3,
+                     zscale=1, clamp_to_ground=T, raise_agl=2,
+                     point_size=20, as_line=F, colour="white", alpha=0.9)
+#add_text_to_rayshader(DEM, gpspos_notc$V2, gpspos_notc$V3, text=gpspos_notc$V1,
+#                      zscale=1, clamp_to_ground=T, raise_agl=30,
+#                      char_size=80, colour="white")
+add_text_to_rayshader(DEM, gpspos_notc$V2, gpspos_notc$V3, text="x",
+                      zscale=1, clamp_to_ground=T, raise_agl=8, alpha=1,
+                      char_size=120, cex=1.8, colour="white")
