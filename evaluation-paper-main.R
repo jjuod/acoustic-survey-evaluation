@@ -235,7 +235,7 @@ ggplot(concordanceF[concordanceF$annot!="TN",], aes(x=secs, y=rec)) +
   theme_bw()
 
 
-# OVERALL CONCORDANCE MEASURES
+# OVERALL CONCORDANCE MEASURES, 1 second resolution
 concordance = group_by(concordanceF, man, auto) %>%
   summarize(duration=n(), rate=duration /7 /12/3600) # total time = 7 recs * 12 hr
 concordance
@@ -322,6 +322,44 @@ write.table(format(data.frame(concordance2), digits=4, scientific=F),
             paste0(outdir, "concordance_dropped.tsv"),
             quote = F, row.names = F, col.names = T, sep = "\t")
 
+## OVERALL CONCORDANCE, 15 second resolution
+concordanceF15 = group_by(concordanceF, t=secs %/% 15, rec) %>%
+  summarize(anyTman = any(man), anyTauto = any(auto)) %>%
+  ungroup()
+concordance15 = group_by(concordanceF15, anyTman, anyTauto) %>%
+  summarize(duration=n(), rate=duration /7 /12/60/4) # total time = 7 recs * 12 hr * 60 min * 4 windows/min
+
+concordance15
+summarize(concordanceF15, sens = mean(anyTman&anyTauto)/mean(anyTman),
+          fpr = mean(anyTauto& !anyTman)/mean(!anyTman),
+          prec = mean(anyTman&anyTauto)/mean(anyTauto),
+          spec = mean(!anyTman & !anyTauto)/mean(!anyTman),
+          acc = mean(anyTman & anyTauto) + mean(!anyTman & !anyTauto), ncall=mean(anyTman))
+
+# DROP COUPLE RECORDERS, 15 second resolution
+recstodrop = list(c("none"), c("ZA", "ZI"), c("ZB", "ZH"))
+concordance2 = data.frame()
+for(d in recstodrop){
+  res = filter(concordanceF15, ! rec %in% d) %>%
+    summarize(sens = mean(anyTman&anyTauto)/mean(anyTman),
+              fpr = mean(anyTauto& !anyTman)/mean(!anyTman),
+              prec = mean(anyTman&anyTauto)/mean(anyTauto),
+              spec = mean(!anyTman & !anyTauto)/mean(!anyTman),
+              acc = mean(anyTman & anyTauto) + mean(!anyTman & !anyTauto), ncall=mean(anyTman)) %>%
+    mutate(droppedRecs = paste(d, collapse=", "))
+  
+  concordance2 = bind_rows(concordance2, res)
+  
+  if(d!="none"){
+    # subtract full data values
+    res[1, 1:6]  = res[1, 1:6] - concordance2[1, 1:6]
+    concordance2 = bind_rows(concordance2, res)  
+  }
+}
+concordance2
+write.table(format(data.frame(concordance2), digits=4, scientific=F),
+            paste0(outdir, "concordance_dropped_15.tsv"),
+            quote = F, row.names = F, col.names = T, sep = "\t")
 
 ## 4. PREP DATA FOR ASCR
 
