@@ -15,7 +15,7 @@ library(rasterVis)
 
 
 annotdir = "~/Documents/kiwis/results/manual1007/"
-outdir = "~/Documents/kiwis/results/evaluationpaper/"
+outdir = "~/Documents/kiwis/evaluationpaper/"
 # Map file downloaded from LINZ data service, data.linz.govt.nz,
 # Wellington 0.3m resolution rural aerial photos, BQ31_0506 tile
 MAPLOCATION = "~/Documents/kiwis/scripts/zealandia/BQ31_0506.tif"
@@ -229,16 +229,15 @@ trapbounds = bbox(spTransform(gpspos, CRS(proj4string(gpsmap))))
 trapbounds[,2] - trapbounds[,1] # 800 x 1500 m section
 # so add 200 m buffer left and down:
 trapbounds[,1] = trapbounds[,1] - 200
-# and small buffer up and left:
-trapbounds[,2] = trapbounds[,2] + 20
+# and 200 m buffer up and right:
+trapbounds[,2] = trapbounds[,2] + 200
 # get offset in m from start
 trapbounds = trapbounds - gridparameters(gpsmap)[,1]
 # get offset in pixels from start
 trapbounds = round(trapbounds/0.3)
 # extract and save subset
 writeGDAL(gpsmap[trapbounds[2,1]:trapbounds[2,2], trapbounds[1,1]:trapbounds[1,2]],
-          paste0(outdir, "BQ31_subset.tif"), drivername="GTiff", type="Byte")
-
+          fname=paste0(outdir, "BQ31_subset.tif"), drivername="GTiff", type="Byte", mvFlag=255)
 
 ## 3. PLOT THE RASTER + RECORDER MAP
 # read in cropped map

@@ -10,7 +10,7 @@ library(ascr)
 library(rgdal)
 library(cowplot)
 
-outdir = "~/Documents/kiwis/results/evaluationpaper/"
+outdir = "~/Documents/kiwis/evaluationpaper/"
 
 ## Read in results from prep script
 trueTimes = read.table(paste0(outdir, "clockadjs.tsv"), h=T)
@@ -123,7 +123,7 @@ readAnnots = function(dir, recs){
 
 ## 1. MANUALLY ANNOTATED DATA
 recorders = c("ZA", "ZB", "ZC", "ZD", "ZE", "ZF", "ZG", "ZH", "ZI", "ZJ", "ZK")
-annotdir = "~/Documents/kiwis/results/manual1007/"
+annotdir = "~/Documents/kiwis/evaluationpaper/manual1007/"
 
 # parse annotations
 annot = readAnnots(annotdir, recorders)
@@ -139,7 +139,7 @@ presence6 = convertto01(annot, "2018-10-06 06:00:00", trueTimes)
 
 
 ## 2. AUTO-DETECTED DATA
-annotdir = "~/Documents/kiwis/results/detect1007/"
+annotdir = "~/Documents/kiwis/evaluationpaper/detect1007/"
 annot2 = readAnnots(annotdir, recorders)
 
 # sanity checks
@@ -152,7 +152,7 @@ presence6A = convertto01(annot2, "2018-10-06 06:00:00", trueTimes)
 
 
 ## SAME FOR THE OTHER DAY
-annotdir = "~/Documents/kiwis/results/detect1008F/"
+annotdir = "~/Documents/kiwis/evaluationpaper/detect1008F/"
 annot3 = readAnnots(annotdir, recorders)
 
 # sanity checks
@@ -165,7 +165,7 @@ presence7A = convertto01(annot3, "2018-10-07 06:00:00", trueTimes)
 
 
 ## LOAD RAW AUTO ANNOTATIONS
-annotdir = "~/Documents/kiwis/results/detect1007/raw/"
+annotdir = "~/Documents/kiwis/evaluationpaper/detect1007/raw/"
 annot4 = readAnnots(annotdir, recorders)
 
 # sanity checks
@@ -173,7 +173,7 @@ table(annot4$species)
 table(annot4$dateAdj)
 qplot(annot4$calllength)
 
-annotdir = "~/Documents/kiwis/results/detect1008F/raw/"
+annotdir = "~/Documents/kiwis/evaluationpaper/detect1008F/raw/"
 annot5 = readAnnots(annotdir, recorders)
 
 # sanity checks
@@ -387,7 +387,9 @@ proj4string(gpspos) = CRS("+proj=longlat +datum=WGS84")
 gpsposM = spTransform(gpspos, CRS("+proj=utm +zone=60G"))
 gpsposM = data.frame(gpsposM)
 colnames(gpsposM) = c("rec", "east", "north", "optional")
-gpsposM = mutate(gpsposM, east=east-mean(east), north=north-mean(north), optional=NULL)
+mapcentroidE = mean(gpsposM$east)
+mapcentroidN = mean(gpsposM$north)
+gpsposM = mutate(gpsposM, east=east-mapcentroidE, north=north-mapcentroidN, optional=NULL)
 ggplot(gpsposM, aes(y=north, x=east)) +
   geom_point() + geom_text(aes(label=rec), nudge_y=50) +
   theme_minimal() + theme(aspect.ratio = 1)
@@ -475,7 +477,7 @@ if(bootSEs){
 # get.mce(bb, "se")
 
 speedplot = data.frame()
-speedplot = rbind(speedplot, c(2, coef.ascr(cr), stdEr(cr), stdEr(bb)))
+speedplot = rbind(speedplot, c(2, coef(cr), stdEr(cr), stdEr(bb)))
 names(speedplot) = c("duration", "D", "g0", "sigma", "SE_D", "SE_g0", "SE_sigma", "SE_D_b", "SE_g0_b", "SE_sigma_b")
 
 
@@ -509,7 +511,7 @@ for(fr in c(0.25, 0.5, 1, 1.5)){
   }
   
   # save result:
-  speedplot = rbind(speedplot, c(fr, coef.ascr(cr), stdEr(cr), stdEr(bb)))
+  speedplot = rbind(speedplot, c(fr, coef(cr), stdEr(cr), stdEr(bb)))
 }
 speedplot
 
@@ -518,11 +520,12 @@ speedplot
 # single frame version
 # (note the division by survey length to account for the issue discussed above)
 gather(speedplot, key="method", value="SE", c(SE_D, SE_D_b)) %>%
-  ggplot(aes(x=duration, y=SE/duration, col=method, group=method)) + geom_point() +
+  ggplot(aes(x=duration, y=SE/duration, col=method, group=method)) +
+  geom_smooth(method="nls", formula = y ~ a/sqrt(x), method.args=list(start=c(a=1)), se=F, lty="dotted", lwd=1) +
+  geom_point(size=4, pch=18) +
   scale_color_discrete(labels=c("asymptotic", "bootstrapped"), name=NULL) +
-  geom_smooth(method="nls", formula = y ~ a/sqrt(x), method.args=list(start=c(a=1)), se=F) +
   theme_bw() + xlab("duration, nights") + ylab(expression(SE(hat(D)))) +
-  theme(legend.position = c(0.8,0.8))
+  theme(legend.position = c(0.8,0.8), text=element_text(size=14), legend.text=element_text(size=14))
 
 
 ## 7. COMPARE WITH MANUAL ANNOTATIONS
@@ -655,4 +658,46 @@ if(bootSEs){
   load(paste0(outdir, "/data/boot-6a-zbzh.RData"), verbose=T)
 }
 
+
+## 9. TRY ALTERNATIVE INTEGRATION MASK
+bootSEs = TRUE
+fence = readOGR("zealandia-polygon-merged.shp")
+fence = spTransform(fence, CRS("+proj=utm +zone=60G"))
+
+# crop mask to the inside of Zealandia.
+# this requires converting the mask into SpatialPoints:
+maskNonCentred = mask
+maskNonCentred[,1] = maskNonCentred[,1] + mapcentroidE
+maskNonCentred[,2] = maskNonCentred[,2] + mapcentroidN
+maskDF = SpatialPoints(maskNonCentred, proj4string=CRS(proj4string(fence)))
+maskOutside = is.na(over(maskDF, fence)$ID)
+
+# plot before cropping:
+plot(mask)
+points(traps, col="red", pch=4)
+points(mask[maskOutside,], col="seagreen")
+
+# actually crop the mask:
+maskFenced = mask[!maskOutside,]
+
+# manual:
+cr = fit.ascr(calls6, traps, maskFenced)
+summary(cr)
+if(bootSEs){
+  bb = boot.ascr(cr, 200, n.cores = 6)
+  print(summary(bb))
+  save(bb, file=paste0(outdir, "/data/boot-6Fen.RData"))
+} else {
+  load(paste0(outdir, "/data/boot-6Fen.RData"), verbose=T)
+}
+# automatic:
+cr = fit.ascr(calls6A, traps, maskFenced)
+summary(cr)
+if(bootSEs){
+  bb = boot.ascr(cr, 200, n.cores = 6)
+  print(summary(bb))
+  save(bb, file=paste0(outdir, "/data/boot-6aFen.RData"))
+} else {
+  load(paste0(outdir, "/data/boot-6aFen.RData"), verbose=T)
+}
 
